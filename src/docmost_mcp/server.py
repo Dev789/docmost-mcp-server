@@ -77,6 +77,7 @@ async def search_docmost(
     query: str,
     space_id: str | None = None,
     limit: int = 10,
+    offset: int = 0,
 ) -> str:
     """Search the Docmost workspace for pages by keyword.
 
@@ -86,14 +87,15 @@ async def search_docmost(
     Args:
         query: The search keywords.
         space_id: Optional space UUID to restrict results to one space.
-        limit: Maximum number of results (default 10, max 100).
+        limit: Maximum number of results (default 10).
+        offset: Number of results to skip (default 0).
 
     Returns:
-        A JSON list of matching pages with titles, highlights, and space info.
+        A JSON list of matching pages with titles and space info.
     """
     try:
         result: dict[str, Any] = await _client.search(
-            query, space_id=space_id, limit=limit,
+            query, space_id=space_id, limit=limit, offset=offset,
         )
         items: list[dict[str, Any]] = result.get("items", [])
         if not items:
@@ -110,18 +112,18 @@ async def search_docmost(
 @mcp.tool()
 async def get_page(
     page_id: str,
-    content_format: str = "markdown",
     include_content: bool = True,
+    include_space: bool = True,
 ) -> str:
     """Retrieve a page's details and content from Docmost.
 
     Use this to read the full content of a documentation page.
-    The content can be returned in markdown, HTML, or raw JSON format.
+    Note: Page content is returned as ProseMirror JSON.
 
     Args:
         page_id: The UUID or slug ID of the page.
-        content_format: Output format — "markdown" (default), "html", or "json".
         include_content: Whether to include the page body (default True).
+        include_space: Whether to include parent space info (default True).
 
     Returns:
         The page data including title, content, space info, and metadata.
@@ -130,7 +132,7 @@ async def get_page(
         result: dict[str, Any] = await _client.get_page(
             page_id,
             include_content=include_content,
-            content_format=content_format,
+            include_space=include_space,
         )
         return _format_json(result)
     except DocmostError as exc:
@@ -145,23 +147,19 @@ async def get_page(
 async def create_page(
     space_id: str,
     title: str = "Untitled",
-    content: str | None = None,
-    content_format: str = "markdown",
     parent_page_id: str | None = None,
-    icon: str | None = None,
+    icon: str = "📄",
 ) -> str:
-    """Create a new documentation page in a Docmost space.
+    """Initialize a new (blank) documentation page skeleton.
 
-    Use this to add new documentation, notes, or project pages.
-    Content can be provided as Markdown, HTML, or ProseMirror JSON.
+    IMPORTANT: This tool only creates the page metadata and hierarchy.
+    To add content to the page, you MUST follow up with 'import_page'.
 
     Args:
-        space_id: UUID of the target space (use 'list_spaces' to find IDs).
+        space_id: UUID of the target space.
         title: Page title.
-        content: Optional page body content.
-        content_format: Format of the content — "markdown" (default), "html", or "json".
         parent_page_id: Optional parent page UUID to create a sub-page.
-        icon: Optional emoji icon for the page (e.g. "📄").
+        icon: Optional emoji icon for the page (default "📄").
 
     Returns:
         The created page's ID and metadata.
@@ -170,19 +168,16 @@ async def create_page(
         result: dict[str, Any] = await _client.create_page(
             space_id,
             title=title,
-            content=content,
-            content_format=content_format,
             parent_page_id=parent_page_id,
             icon=icon,
         )
         page_id: str = result.get("id", "unknown")
-        slug_id: str = result.get("slugId", "")
         return (
-            f"✅ Page created successfully!\n"
+            f"✅ Blank page created successfully!\n"
             f"  • Title: {title}\n"
             f"  • Page ID: {page_id}\n"
-            f"  • Slug: {slug_id}\n"
-            f"  • Space: {space_id}"
+            f"  • Space: {space_id}\n"
+            f"👉 NEXT STEP: Use 'import_page' with this Page ID to add content."
         )
     except DocmostError as exc:
         return f"Failed to create page: {exc}"
@@ -196,25 +191,17 @@ async def create_page(
 async def update_page(
     page_id: str,
     title: str | None = None,
-    content: str | None = None,
-    content_format: str = "markdown",
-    operation: str = "replace",
     icon: str | None = None,
 ) -> str:
-    """Update an existing page's title, content, or icon.
+    """Update a page's title or icon (metadata only).
 
-    Supports three content operations:
-    - "replace" (default): Overwrites all existing content.
-    - "append": Adds new content at the end of the page.
-    - "prepend": Adds new content at the beginning of the page.
+    Note: This tool does NOT update page content. To replace page content,
+    use the 'import_page' tool with a 'page_id'.
 
     Args:
         page_id: UUID of the page to update.
-        title: New title (omit to keep current title).
-        content: New content (omit to keep current content).
-        content_format: Format of the content — "markdown" (default), "html", or "json".
-        operation: How to apply content — "replace", "append", or "prepend".
-        icon: New emoji icon (omit to keep current icon).
+        title: New title (omit to keep current).
+        icon: New emoji icon (omit to keep current).
 
     Returns:
         Confirmation with the updated page's metadata.
@@ -223,16 +210,12 @@ async def update_page(
         result: dict[str, Any] = await _client.update_page(
             page_id,
             title=title,
-            content=content,
-            content_format=content_format,
-            operation=operation,
             icon=icon,
         )
         return (
-            f"✅ Page updated successfully!\n"
+            f"✅ Page metadata updated successfully!\n"
             f"  • Page ID: {page_id}\n"
             f"  • Title: {result.get('title', 'N/A')}\n"
-            f"  • Operation: {operation}\n"
             f"  • Last Updated: {result.get('updatedAt', 'N/A')}"
         )
     except DocmostError as exc:
@@ -274,33 +257,31 @@ async def delete_page(
 # ══════════════════════════════════════════════════════════════════════
 
 @mcp.tool()
-async def list_spaces(limit: int = 50) -> str:
+async def list_spaces(page: int = 1, per_page: int = 50) -> str:
     """List all Docmost spaces the authenticated user can access.
 
-    Spaces are top-level containers for organising documentation pages
-    by team, project, or department.  Use this tool first to discover
-    available space IDs before using other page tools.
+    Spaces are top-level containers for teams/projects. Use this to
+    discover space IDs before creating or listing pages.
 
     Args:
-        limit: Maximum number of spaces to return (default 50, max 100).
+        page: Page number to retrieve (default 1).
+        per_page: Number of spaces per page (default 50, max 100).
 
     Returns:
-        A JSON list of spaces with names, slugs, descriptions, and IDs.
+        A JSON list of spaces with names and IDs.
     """
     try:
-        result: dict[str, Any] = await _client.list_spaces(limit=limit)
+        result: dict[str, Any] = await _client.list_spaces(page=page, per_page=per_page)
         items: list[dict[str, Any]] = result.get("items", [])
         if not items:
-            return "No spaces found. The workspace may be empty."
+            return "No spaces found."
 
-        # Build a simplified summary for the LLM.
         summary: list[dict[str, Any]] = [
             {
                 "id": s.get("id"),
                 "name": s.get("name"),
                 "slug": s.get("slug"),
                 "description": s.get("description"),
-                "memberCount": s.get("memberCount"),
             }
             for s in items
         ]
@@ -378,29 +359,32 @@ async def import_page(
     space_id: str,
     title: str,
     content: str,
+    page_id: str | None = None,
 ) -> str:
-    """Import a Markdown document as a new page in Docmost.
+    """Import Markdown content as a new page or replace an existing page.
 
-    Creates a new page by uploading Markdown content through the
-    import API.  Best for creating detailed project notes or docs
-    in one go.
+    This is the RECOMMENDED method for creating a page with content in Docmost.
+    If 'page_id' is provided, the content of that specific page will be replaced.
+    Otherwise, a new page will be created.
 
     Args:
         space_id: UUID of the target space.
-        title: Title for the imported page.
+        title: Title/Filename for the imported content.
         content: The full Markdown content to import.
+        page_id: Optional UUID of an existing page to replace its content.
 
     Returns:
         Confirmation of the import.
     """
     try:
-        await _client.import_page(space_id, title, content)
+        await _client.import_page(space_id, title, content, page_id=page_id)
+        target: str = f"page '{page_id}'" if page_id else f"new page '{title}'"
         return (
-            f"✅ Successfully imported '{title}' into space '{space_id}'.\n"
-            f"  Use 'list_space_pages' to find the new page's ID."
+            f"✅ Successfully imported content into {target} in space '{space_id}'.\n"
+            f"  Use 'list_space_pages' to confirm."
         )
     except DocmostError as exc:
-        return f"Failed to import page '{title}': {exc}"
+        return f"Failed to import content: {exc}"
 
 
 # ══════════════════════════════════════════════════════════════════════

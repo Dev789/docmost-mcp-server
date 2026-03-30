@@ -12,15 +12,15 @@ A **Model Context Protocol (MCP)** server that connects any LLM client to your [
 
 | Tool | Description |
 |---|---|
-| `search_docmost` | Full-text search across all pages |
-| `get_page` | Read page content (Markdown / HTML / JSON) |
-| `create_page` | Create a new page with optional content |
-| `update_page` | Update title/content (replace, append, prepend) |
+| `search_docmost` | Full-text search with offset pagination |
+| `get_page` | Read page data (returns ProseMirror JSON) |
+| `create_page` | Create a blank page skeleton (metadata only) |
+| `update_page` | Update page title or icon (metadata only) |
 | `delete_page` | Soft-delete or permanently remove a page |
-| `list_spaces` | List all accessible spaces |
+| `list_spaces` | List all accessible spaces with pagination |
 | `get_space_info` | Get space details and permissions |
 | `list_space_pages` | Browse the page hierarchy in a space |
-| `import_page` | Import Markdown as a new page |
+| `import_page` | Import Markdown or replace page content (Recommended) |
 
 ---
 
@@ -84,6 +84,20 @@ Add this to your MCP client configuration:
 ```
 
 > **Tip:** If you installed with `pip`, use the full path to the `docmost-mcp` executable. Find it with: `which docmost-mcp` (macOS/Linux) or `where docmost-mcp` (Windows).
+
+---
+
+## 🛠️ Usage Guidelines
+
+### Creating Pages with Content
+Docmost v1 REST API separates metadata from content. To create a page with initial content:
+1. Call `create_page` to initialize the skeleton and get a `page_id`.
+2. Call `import_page` providing the `page_id` and your Markdown `content`.
+
+*Alternatively*, use `import_page` directly to create a new page from Markdown if you don't need to specify an icon or parent first.
+
+### Updating Content
+The `update_page` tool is for metadata (title/icon) only. To update or replace the content of an existing page, use `import_page` with the target `page_id`.
 
 ---
 

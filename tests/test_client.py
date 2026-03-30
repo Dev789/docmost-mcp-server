@@ -28,7 +28,6 @@ async def test_client_get_page_success(client):
             "pageId": "page-1",
             "includeContent": True,
             "includeSpace": True,
-            "format": "markdown",
         }
     )
 
@@ -39,5 +38,5 @@ async def test_client_search_success(client):
     result = await client.search("query")
     assert result["items"][0]["id"] == "r1"
     client._request.assert_called_once_with(
-        "POST", "/search", json_body={"query": "query", "limit": 20}
+        "POST", "/search", json_body={"query": "query", "limit": 10, "offset": 0}
     )

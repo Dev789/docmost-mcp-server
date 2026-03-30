@@ -62,7 +62,6 @@ class DocmostClient:
 
         # Build default headers — Bearer token if available.
         headers: dict[str, str] = {
-            "Content-Type": "application/json",
             "Accept": "application/json",
         }
         if config.uses_bearer_token:
@@ -228,8 +227,6 @@ class DocmostClient:
                     kwargs["files"] = files
                     if data is not None:
                         kwargs["data"] = data
-                    # Remove Content-Type so httpx generates the boundary.
-                    kwargs["headers"].pop("Content-Type", None)
                 elif json_body is not None:
                     kwargs["json"] = json_body
 
@@ -329,7 +326,6 @@ class DocmostClient:
         *,
         include_content: bool = True,
         include_space: bool = True,
-        content_format: str = "markdown",
     ) -> dict[str, Any]:
         """Retrieve a page's details and optionally its content.
 
@@ -337,7 +333,6 @@ class DocmostClient:
             page_id: UUID or slug ID of the page.
             include_content: If ``True``, include the page body.
             include_space: If ``True``, include the parent space info.
-            content_format: Output format — ``"json"``, ``"markdown"``, or ``"html"``.
 
         Returns:
             Page data dict with nested creator, space, and content fields.
@@ -346,37 +341,28 @@ class DocmostClient:
             "pageId": page_id,
             "includeContent": include_content,
             "includeSpace": include_space,
-            "format": content_format,
         })
 
     async def create_page(
         self,
         space_id: str,
         *,
-        title: str = "",
-        content: str | None = None,
-        content_format: str = "markdown",
+        title: str = "Untitled",
         parent_page_id: str | None = None,
-        icon: str | None = None,
+        icon: str | None = "📄",
     ) -> dict[str, Any]:
-        """Create a new page in a space.
+        """Initialize a new page skeleton in a space.
 
         Args:
             space_id: UUID of the target space.
-            title: Page title (can be empty).
-            content: Optional page body (interpreted per ``content_format``).
-            content_format: ``"markdown"``, ``"html"``, or ``"json"``.
+            title: Page title.
             parent_page_id: Optional parent page UUID for nesting.
-            icon: Optional emoji or icon string.
+            icon: Optional emoji icon string (e.g. "📄").
 
         Returns:
             The created page data dict.
         """
         payload: dict[str, Any] = {"spaceId": space_id, "title": title}
-
-        if content is not None:
-            payload["content"] = content
-            payload["format"] = content_format
 
         if parent_page_id:
             payload["parentPageId"] = parent_page_id
@@ -390,21 +376,14 @@ class DocmostClient:
         page_id: str,
         *,
         title: str | None = None,
-        content: str | None = None,
-        content_format: str = "markdown",
-        operation: str = "replace",
         icon: str | None = None,
     ) -> dict[str, Any]:
-        """Update an existing page.
+        """Update a page's metadata (title or icon).
 
         Args:
             page_id: UUID of the page to update.
             title: New title (or ``None`` to keep current).
-            content: New content (or ``None`` to keep current).
-            content_format: ``"markdown"``, ``"html"``, or ``"json"``.
-            operation: How to apply content — ``"replace"``, ``"append"``,
-                or ``"prepend"``.
-            icon: New emoji/icon (or ``None`` to keep current).
+            icon: New emoji icon (or ``None`` to keep current).
 
         Returns:
             The updated page data dict.
@@ -413,10 +392,6 @@ class DocmostClient:
 
         if title is not None:
             payload["title"] = title
-        if content is not None:
-            payload["content"] = content
-            payload["format"] = content_format
-            payload["operation"] = operation
         if icon is not None:
             payload["icon"] = icon
 
@@ -473,15 +448,16 @@ class DocmostClient:
         space_id: str,
         title: str,
         markdown_content: str,
+        *,
+        page_id: str | None = None,
     ) -> dict[str, Any]:
-        """Import a Markdown document as a new page.
-
-        Creates a page by uploading Markdown content via the import endpoint.
+        """Import a Markdown document as a new page or replace an existing one.
 
         Args:
             space_id: UUID of the target space.
             title: Document title (used as the filename).
             markdown_content: The Markdown content to import.
+            page_id: Optional UUID. If provided, replaces the content of this page.
 
         Returns:
             The import result dict.
@@ -490,6 +466,8 @@ class DocmostClient:
             "file": (f"{title}.md", markdown_content, "text/markdown"),
         }
         data: dict[str, str] = {"spaceId": space_id}
+        if page_id:
+            data["pageId"] = page_id
 
         return await self._request(
             "POST", "/pages/import", files=files, data=data,
@@ -502,23 +480,20 @@ class DocmostClient:
     async def list_spaces(
         self,
         *,
-        limit: int = 50,
-        cursor: str | None = None,
+        page: int = 1,
+        per_page: int = 50,
     ) -> dict[str, Any]:
         """List all spaces the authenticated user can access.
 
         Args:
-            limit: Number of spaces per page (1–100).
-            cursor: Pagination cursor from a previous response.
+            page: Numeric page number (starts at 1).
+            per_page: Number of spaces per page (1–100).
 
         Returns:
             Dict with ``items`` (list of spaces) and ``meta`` (pagination).
         """
-        payload: dict[str, Any] = {"limit": limit}
-        if cursor:
-            payload["cursor"] = cursor
-
-        return await self._request("POST", "/spaces", json_body=payload)
+        payload: dict[str, Any] = {"page": page, "perPage": per_page}
+        return await self._request("POST", "/spaces/", json_body=payload)
 
     async def get_space(self, space_id: str) -> dict[str, Any]:
         """Get details for a specific space.
@@ -542,24 +517,22 @@ class DocmostClient:
         query: str,
         *,
         space_id: str | None = None,
-        creator_id: str | None = None,
-        limit: int = 20,
+        limit: int = 10,
+        offset: int = 0,
     ) -> dict[str, Any]:
         """Full-text search across all accessible pages.
 
         Args:
             query: Search keywords.
             space_id: Optional space filter.
-            creator_id: Optional creator filter.
             limit: Max results to return.
+            offset: Number of items to skip for pagination.
 
         Returns:
             Dict with ``items`` (list of search results with highlights).
         """
-        payload: dict[str, Any] = {"query": query, "limit": limit}
+        payload: dict[str, Any] = {"query": query, "limit": limit, "offset": offset}
         if space_id:
             payload["spaceId"] = space_id
-        if creator_id:
-            payload["creatorId"] = creator_id
 
         return await self._request("POST", "/search", json_body=payload)
