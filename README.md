@@ -76,8 +76,7 @@ Add this to your MCP client configuration:
       "command": "docmost-mcp",
       "env": {
         "DOCMOST_BASE_URL": "https://docmost.example.com",
-        "DOCMOST_EMAIL": "your@email.com",
-        "DOCMOST_PASSWORD": "your-password"
+        "DOCMOST_API_TOKEN": "your-api-token"
       }
     }
   }
