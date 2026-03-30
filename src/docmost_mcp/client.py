@@ -462,12 +462,23 @@ class DocmostClient:
         Returns:
             The import result dict.
         """
+        if page_id:
+            # Case 1: Bulk replacement of existing page content.
+            # Docmost v1 API handles content updates (replace/append/prepend) 
+            # via the /pages/update endpoint with format and operation fields.
+            payload: dict[str, Any] = {
+                "pageId": page_id,
+                "content": markdown_content,
+                "format": "markdown",
+                "operation": "replace",
+            }
+            return await self._request("POST", "/pages/update", json_body=payload)
+
+        # Case 2: Creation of a new page from Markdown source.
         files: dict[str, tuple[str, str, str]] = {
             "file": (f"{title}.md", markdown_content, "text/markdown"),
         }
         data: dict[str, str] = {"spaceId": space_id}
-        if page_id:
-            data["pageId"] = page_id
 
         return await self._request(
             "POST", "/pages/import", files=files, data=data,

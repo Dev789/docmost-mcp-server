@@ -40,3 +40,35 @@ async def test_client_search_success(client):
     client._request.assert_called_once_with(
         "POST", "/search", json_body={"query": "query", "limit": 10, "offset": 0}
     )
+
+@pytest.mark.asyncio
+async def test_client_import_page_create_success(client):
+    client._request = AsyncMock(return_value={"id": "new-page"})
+    
+    result = await client.import_page("space-1", "New Title", "# Content")
+    assert result["id"] == "new-page"
+    
+    # Check that it called /pages/import with files and data
+    args, kwargs = client._request.call_args
+    assert args == ("POST", "/pages/import")
+    assert "files" in kwargs
+    assert "data" in kwargs
+    assert kwargs["data"]["spaceId"] == "space-1"
+    assert kwargs["files"]["file"][0] == "New Title.md"
+
+@pytest.mark.asyncio
+async def test_client_import_page_replace_success(client):
+    client._request = AsyncMock(return_value={"id": "page-1"})
+    
+    result = await client.import_page("space-1", "Ignored Title", "# New Content", page_id="page-1")
+    assert result["id"] == "page-1"
+    
+    # Check that it called /pages/update with json_body
+    client._request.assert_called_once_with(
+        "POST", "/pages/update", json_body={
+            "pageId": "page-1",
+            "content": "# New Content",
+            "format": "markdown",
+            "operation": "replace",
+        }
+    )
